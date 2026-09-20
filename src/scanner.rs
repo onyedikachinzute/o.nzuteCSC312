@@ -127,9 +127,20 @@ impl Scanner {
     }
 
     fn number(&mut self) {
-        // TODO(you): scan a number literal: digits, then a fractional part only when a digit
-        //            follows the dot (1.4).
-        todo!("number")
+        // Integer part
+        while !self.at_end() && self.peek().is_ascii_digit() {
+            self.advance();
+        }
+
+        // Fractional part
+        if self.peek() == '.' && self.peek_next().is_ascii_digit() {
+            self.advance(); // Consume '.'
+            while !self.at_end() && self.peek().is_ascii_digit() {
+                self.advance(); // Consume digits after decimal point
+            }
+        }
+
+        self.add(TokenType::Number);
     }
 
     fn identifier(&mut self) {
