@@ -1,3 +1,5 @@
+use std::io::ErrorKind;
+
 use crate::token::{keyword, Token, TokenType};
 
 /// Cut `source` into tokens. Returns everything it managed to scan alongside every
@@ -144,10 +146,21 @@ impl Scanner {
     }
 
     fn identifier(&mut self) {
-        // TODO(you): scan an identifier, then decide whether it is a keyword; keyword() in
-        //            token.rs does the lookup (1.2, 1.3).
-        todo!("identifier")
+        // Consume all identifier characters (letters, digits, underscores)
+        while !self.at_end() && (self.peek().is_ascii_alphanumeric() || self.peek() == '_') {
+            self.advance();
     }
+
+    // Extract the lexeme as string
+    let text: String = self.src[self.start..self.current].iter().collect();
+
+    // Check if it's a keyword
+    if let Some(kind) = keyword(&text) {
+        self.add(kind);
+    } else {
+        self.add(TokenType::Identifier);
+    }
+}
 
     // --- primitives ---------------------------------------------------------------
 
