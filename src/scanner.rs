@@ -26,9 +26,11 @@ struct Scanner {
 
 impl Scanner {
     fn run(&mut self) {
-        // TODO(you): drive the scan: read one token at a time until the source runs out, then
-        //            add the EOF token. Spec 6.1 says which line EOF carries.
-        todo!("run")
+        while !self.at_end() {
+            self.start = self.current; 
+            self.scan_token();         
+        }
+        self.add(TokenType::Eof);
     }
 
     fn scan_token(&mut self) {
