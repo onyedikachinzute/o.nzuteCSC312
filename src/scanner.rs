@@ -107,9 +107,23 @@ impl Scanner {
 
 
     fn string(&mut self) {
-        // TODO(you): scan a string literal. A string may span lines (1.5); an unterminated one
-        //            is reported at the line it opened on (5.1).
-        todo!("string")
+        // Consume character until closing quote
+        while !self.at_end() && self.peek() != '"' {
+            if self.peek() == '\n' { self.line += 1; } // Newline in string
+            self.advance();
+        }
+
+        if self.at_end() {
+            // Unterminated string literal
+            self.error(self.line, "Unterminated string.");
+            return;
+        }
+
+        // Consume the closing quote
+        self.advance();
+
+        // Add the string token
+        self.add(TokenType::Str);
     }
 
     fn number(&mut self) {
