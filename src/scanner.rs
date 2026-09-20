@@ -34,11 +34,77 @@ impl Scanner {
     }
 
     fn scan_token(&mut self) {
-        // TODO(you): recognise one token. Spec 1.2 lists every token type, 1.1 covers
-        //            whitespace and comments, and an unrecognised character is 'Character is
-        //            not part of any token.' (5.1).
-        todo!("scan_token")
+    // Skip whitespace and comments
+    loop {
+        match self.advance() {
+            ' ' | '\r' | '\t' => {}, // Ignore whitespace
+            '\n' => self.line += 1,  // Newline increases count by 1
+            '/' => {
+                if self.matches('/') {
+                    // Line comment: skip to end of line
+                    while !self.at_end() && self.peek() != '\n' { self.advance(); }
+                } else if self.matches('*') {
+                    // Block comment: skip until closing */
+                    while !self.at_end() {
+                        if self.peek() == '*' && self.peek_next() == '/' {
+                            self.advance(); // consume '*'
+                            self.advance(); // consume '/'
+                            break;
+                        }
+                        if self.peek() == '\n' { self.line += 1; }
+                        self.advance();
+                    }
+                } else {
+                    // Single '/' is division
+                    self.add(TokenType::Slash);
+                    return;
+                }
+            }
+            c => {
+                // Non-whitespace, non-slash: re-consume as token start
+                self.current -= 1;
+                break;
+            }
+        }
     }
+
+    if self.at_end() { return; } // Guard against EOF after skipping
+
+    self.start = self.current; // Mark start of token
+    let c = self.advance();    // Consume first char
+    match c {
+        '(' => self.add(TokenType::LParen),
+        ')' => self.add(TokenType::RParen),
+        '{' => self.add(TokenType::LBrace),
+        '}' => self.add(TokenType::RBrace),
+        ',' => self.add(TokenType::Comma),
+        ';' => self.add(TokenType::Semicolon),
+        '+' => self.add(TokenType::Plus),
+        '-' => self.add(TokenType::Minus),
+        '*' => self.add(TokenType::Star),
+        '!' => {
+            if self.matches('=') { self.add(TokenType::BangEqual); }
+            else { self.add(TokenType::Bang); }
+        }
+        '=' => {
+            if self.matches('=') { self.add(TokenType::EqualEqual); }
+            else { self.add(TokenType::Equal); }
+        }
+        '<' => {
+            if self.matches('=') { self.add(TokenType::LessEqual); }
+            else { self.add(TokenType::Less); }
+        }
+        '>' => {
+            if self.matches('=') { self.add(TokenType::GreaterEqual); }
+            else { self.add(TokenType::Greater); }
+        }
+        '"' => self.string(), // String literal
+        '0'..='9' => self.number(), // Number literal
+        'a'..='z' | 'A'..='Z' | '_' => self.identifier(), // Identifier or keyword
+        _ => self.error(self.line, "Character is not part of any token."), // Error
+    }
+}
+
 
     fn string(&mut self) {
         // TODO(you): scan a string literal. A string may span lines (1.5); an unterminated one
