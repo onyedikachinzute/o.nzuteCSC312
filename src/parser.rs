@@ -52,11 +52,21 @@ impl Parser {
         self.statement()
     }
 
-    fn fun_declaration(&mut self) -> Parsed<Stmt> {
-        // TODO(you): spec 3.1: a function declaration, its parameter list, and its body.
-        //            Functions are hoisted into Program::functions.
-        todo!("fun_declaration")
-    }
+    fn declaration(&mut self) -> Parsed<Stmt> {
+        self.depth += 1;
+        let result = if self.depth > MAX_NESTING {
+            self.error("Too deeply nested.");
+            Err(())
+        } else if self.matches(&[TokenType::Fun]) {
+            self.fun_declaration()
+        } else if self.matches(&[TokenType::Var]) {
+            self.var_declaration()
+        } else {
+            self.statement()
+        };
+        self.depth -= 1;
+        result
+    }    
 
     fn var_declaration(&mut self) -> Parsed<Stmt> {
         // TODO(you): spec 3.1: 'var' name ( '=' expression )? ';'
