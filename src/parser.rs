@@ -458,7 +458,6 @@ impl Parser {
                 TokenType::Class
                 | TokenType::Fun
                 | TokenType::Var
-                | TokenType::For
                 | TokenType::If
                 | TokenType::While
                 | TokenType::Print
