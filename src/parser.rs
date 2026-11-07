@@ -45,14 +45,6 @@ impl Parser {
     // --- declarations and statements ------------------------------------------------
 
     fn declaration(&mut self) -> Parsed<Stmt> {
-        // TODO(you): spec 3.1: a declaration is a fun, a var, or a statement. This is also
-        //            where an error is caught and synchronise() runs.
-        // TEMPORARY: enough of this rule to let the ones below it run. Replace it in its
-        //            own week; the marking tests for it fail until you do.
-        self.statement()
-    }
-
-    fn declaration(&mut self) -> Parsed<Stmt> {
         self.depth += 1;
         let result = if self.depth > MAX_NESTING {
             self.error("Too deeply nested.");
@@ -66,7 +58,23 @@ impl Parser {
         };
         self.depth -= 1;
         result
-    }    
+    }
+    fn fun_declaration(&mut self) -> Parsed<Stmt> {
+        let name_token = self.consume(TokenType::Identifier, "Expect function name.")?;
+        let name = name_token.lexeme;
+
+        self.consume(TokenType::LParen, "Expect '(' after function name.")?;
+        let mut params = Vec::new();
+
+        if !self.check(TokenType::RParen) {
+            loop {
+                let param_token = self.consume(TokenType::Identifier, "Expect parameter name.")?;
+                params.push(param_token.lexeme);
+                if !self.matches(&[TokenType::Comma]) {
+                    break;
+                }
+            }
+        }    
 
     fn var_declaration(&mut self) -> Parsed<Stmt> {
         // TODO(you): spec 3.1: 'var' name ( '=' expression )? ';'
