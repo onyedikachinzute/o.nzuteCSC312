@@ -59,6 +59,7 @@ impl Parser {
         self.depth -= 1;
         result
     }
+
     fn fun_declaration(&mut self) -> Parsed<Stmt> {
         let name_token = self.consume(TokenType::Identifier, "Expect function name.")?;
         let name = name_token.lexeme;
@@ -74,7 +75,30 @@ impl Parser {
                     break;
                 }
             }
-        }    
+        }
+
+        self.consume(TokenType::RParen, "Expect ')' after parameters.")?;
+        self.consume(TokenType::LBrace, "Expect '{' before function body.")?;
+
+        let body_line = self.previous().line;
+        let body = self.block()?;
+
+        let func = Function {
+            name: name.clone(),
+            params,
+            body,
+            line: body_line,
+        };
+
+        let index = self.program.functions.len();
+        self.program.functions.push(func);
+
+        Ok(Stmt::Function {
+            index,
+            name,
+            slot: None,
+        })
+    }
 
     fn var_declaration(&mut self) -> Parsed<Stmt> {
         // TODO(you): spec 3.1: 'var' name ( '=' expression )? ';'
