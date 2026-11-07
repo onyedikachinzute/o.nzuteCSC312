@@ -327,8 +327,19 @@ impl Parser {
     }
 
     fn factor(&mut self) -> Parsed<Expr> {
-        // TODO(you): spec 3.2, one rung of the precedence ladder.
-        todo!("factor")
+        let mut expr = self.unary()?;
+
+        while self.matches(&[TokenType::Slash, TokenType::Star]) {
+            let op = self.previous();
+            let right = self.unary()?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(expr)
     }
 
     fn unary(&mut self) -> Parsed<Expr> {
