@@ -393,13 +393,41 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Parsed<Expr> {
-        // TODO(you): spec 3.2: literals, identifiers and grouping.
-        // TEMPORARY: enough of this rule to let the ones below it run. Replace it in its
-        //            own week; the marking tests for it fail until you do.
+        if self.matches(&[TokenType::False]) {
+            return Ok(self.literal(Value::Bool(false)));
+        }
+        if self.matches(&[TokenType::True]) {
+            return Ok(self.literal(Value::Bool(true)));
+        }
+        if self.matches(&[TokenType::Nil]) {
+            return Ok(self.literal(Value::Nil));
+        }
+
         if self.matches(&[TokenType::Number]) {
             let n = self.previous().lexeme.parse::<f64>().unwrap();
             return Ok(self.literal(Value::Number(n)));
         }
+
+        if self.matches(&[TokenType::Str]) {
+            let raw = self.previous().lexeme;
+            // Trim enclosing quotes
+            let s = raw[1..raw.len() - 1].to_string();
+            return Ok(self.literal(Value::Str(s)));
+        }
+
+        if self.matches(&[TokenType::Identifier]) {
+            return Ok(Expr::Variable {
+                name: self.previous(),
+                at: Resolved::default(),
+            });
+        }
+
+        if self.matches(&[TokenType::LParen]) {
+            let expr = self.expression()?;
+            self.consume(TokenType::RParen, "Expect ')' after expression.")?;
+            return Ok(Expr::Grouping(Box::new(expr)));
+        }
+
         self.error("Expect expression.");
         Err(())
     }
