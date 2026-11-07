@@ -443,16 +443,30 @@ impl Parser {
     /// the parse makes progress; a recovery that could stand still would hang the
     /// compiler on the file that triggered it.
     fn synchronise(&mut self) {
-        // TODO(you): spec 5.2: after an error, discard tokens until just past a ';' or on a
-        //            statement keyword, so one mistake costs one message.
-        // TEMPORARY: enough of this rule to let the ones below it run. Replace it in its
-        //            own week; the marking tests for it fail until you do.
         self.depth = 0;
-        while !self.at_end() {
+
+        if !self.at_end() {
             self.current += 1;
+        }
+
+        while !self.at_end() {
             if self.previous().kind == TokenType::Semicolon {
                 return;
             }
+
+            match self.peek().kind {
+                TokenType::Class
+                | TokenType::Fun
+                | TokenType::Var
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => return,
+                _ => {}
+            }
+
+            self.current += 1;
         }
     }
 
