@@ -1,15 +1,89 @@
-1. It is line 162. Here, the scanner makes the decision to consume the character '.' and the line 164 and 165 consume the number(s) after the dot.
-For '5.', the integer loop consumes 5. But the 'peek_next()' returns nothing because there's nothing after the '.' character. So the scanner emits Number("5") and the '.' is left for the next scan_token call. This will report "Character is not part of any token". The scanner doesn't consume a '.' unless a digit follows it. 
+# CA2 Reflection — Parser
 
-2. 'self.line' changes in three places, and all three are 'self.line += 1'; 
-Line 55: in the '\n' arm of the whitespace loop.
-Line 79: in the block comment loop.
-Line 142: in 'string()', at 'if self.peak() == '\n'.
-Take a file that is x\n\n\n, meaning one token and then two blank lines. The scanner passes 3 newlines, so self.line is 4 when run() finishes. But run() computes eof_line = self.tokens.last().map_or(self.line, |t| t.line), so EOF carries line 1, the line of x. It only falls back to self.line when there are no tokens at all. I think section 6.1 wants EOF on the last token's line because trailing blank lines are just whitespace and shouldn't move the end-of-file position. Counting them would make EOF's line depend on how many blank lines happen to be at the end of the file.
+### Question 1: Dangling Else Resolution
+In `src/parser.rs:170-174`, the dangling `else` is resolved inside `if_statement`:
 
-3. I failed valid\eof_line.kobo, multiple times. It expected [line 1] EOF '' and I printed [line 9] as EOF '' for one of the error instances. So basically, it was passing the wrong value for the line number of the EOF function. I fixed it in run() by replacing self.add(TokenType::Eof) with the eof_line computation and the manual Token push. I had misunderstood which line EOF belongs to. I assumed it should carry whatever self.line was when scanning ended, so every trailing newline pushed it further down. The spec ties EOF to the last token, not to the scanner's position. The very last commit represented the fixed code, whereas the one before that had 4 out of 14 tests passed.
+```rust
+let else_branch = if self.matches(&[TokenType::Else]) {
+    Some(Box::new(self.statement()?))
+} else {
+    None
+};
+```
 
-The git hash where I only passed about 4 of the tests is this: c54c315c9f0174b1567f061e0be1a2d3afe8ed79
-I had just written the identifier function so I had run the tests for the first time after all my functions were written and I only passed 4 out of the 14 tests.
+The recursion resolves ambiguity because self.statement() at src/parser.rs:169 is invoked recursively to parse then_branch. When an inner if statement executes, its own nested if_statement function eagerly checks for, matches, and consumes the else token at src/parser.rs:170 before returning control back up to the outer if_statement. The grammar specification itself is ambiguous, but the control flow of recursive descent forces the innermost if currently on the call stack to bind the else.
 
-The git hash where I pass all my tests and I corrected the EOF not passing errors is this: f94be1141d46a7e795c5f1d479cbd4adfa0e5560
+For if (false) if (true) print "a"; else print "b";, the parser prints:(if false (if true (print a) (print b)))
+
+If the else bound to the outer if instead, it would print:(if false (if true (print a)) (print b))
+
+Broken commit (aa0e160): let else_branch = None;
+
+Fixed commit (f5edddd): let else_branch = if self.matches(&[TokenType::Else]) { Some(Box::new(self.statement()?)) } else { None };
+
+### Question 2: Assignment Left-Hand Side Validation
+
+In `src/parser.rs:230-238`, the check validating the target of an assignment occurs inside assignment:
+
+```rust
+if let Expr::Variable { name, at } = expr {
+    return Ok(Expr::Assign {
+        name,
+        value: Box::new(value),
+        at,
+    });
+}
+
+self.error_at(&equals, "Cannot assign to this expression.");
+```
+
+This check cannot happen before parsing the left side because Kobo's grammar is not LL(1). Lookahead alone cannot distinguish an identifier assignment target from the beginning of a complex expression (such as a + b versus a = 1). Consequently, the left operand must first be fully parsed as a generic expression via self.or() at src/parser.rs:224, and only verified after encountering the = token at src/parser.rs:226.
+
+For the invalid input 1 = 2;, the parser reports:[line 1] Error at '=': Cannot assign to this expression.
+
+Broken commit (c4b2efb): self.or()
+
+Fixed commit (f5edddd): if let Expr::Variable { name, at } = expr { return Ok(Expr::Assign { name, value: Box::new(value), at }); } self.error_at(&equals, "Cannot assign to this expression.");
+
+### Question 3: Error Recovery via Synchronisation
+
+In `src/parser.rs:445-469`, `synchronise` handles parse error recovery:
+
+```rust
+fn synchronise(&mut self) {
+    self.depth = 0;
+    if !self.at_end() {
+        self.current += 1;
+    }
+    while !self.at_end() {
+        if self.previous().kind == TokenType::Semicolon {
+            return;
+        }
+        match self.peek().kind {
+            TokenType::Fun
+            | TokenType::Var
+            | TokenType::If
+            | TokenType::While
+            | TokenType::Print
+            | TokenType::Return => return,
+            _ => {}
+        }
+        self.current += 1;
+    }
+}
+```
+
+synchronise discards tokens until it steps just past a SEMICOLON at src/parser.rs:453 or positions itself on a declaration/statement keyword (fun, var, if, while, print, return) at src/parser.rs:458-463. These tokens mark clean boundaries where statement parsing can safely resume without cascading failures.
+
+In tests/phase-2/invalid/expect_semicolon_after_value.kobo:
+
+print 1
+print 2;
+
+Standard error output with synchronise:[line 2] Error at 'print': Expect ';' after value.
+
+If the call to synchronise() at src/parser.rs:18 is removed, the parser fails to discard tokens and make progress. Its output changes to:[line 2] Error at 'print': Expect ';' after value.[line 2] Error at ';': Expect expression.
+
+Broken commit (d0f07b9): self.depth = 0; while !self.at_end() { self.current += 1; if self.previous().kind == TokenType::Semicolon { return; } }
+
+Fixed commit (f5edddd): match self.peek().kind { TokenType::Fun | TokenType::Var | TokenType::If | TokenType::While | TokenType::Print | TokenType::Return => return, _ => {} }
