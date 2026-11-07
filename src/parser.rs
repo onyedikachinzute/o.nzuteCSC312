@@ -455,8 +455,7 @@ impl Parser {
             }
 
             match self.peek().kind {
-                TokenType::Class
-                | TokenType::Fun
+                TokenType::Fun
                 | TokenType::Var
                 | TokenType::If
                 | TokenType::While
