@@ -192,8 +192,14 @@ impl Parser {
     /// The `{` is already consumed. Declarations, not statements: a block is where a
     /// `var` most often appears, and the whole point of one is that the name dies at `}`.
     fn block(&mut self) -> Parsed<Vec<Stmt>> {
-        // TODO(you): spec 3.1: '{' declaration* '}'
-        todo!("block")
+        let mut stmts = Vec::new();
+
+        while !self.check(TokenType::RBrace) && !self.at_end() {
+            stmts.push(self.declaration()?);
+        }
+
+        self.consume(TokenType::RBrace, "Expect '}' after block.")?;
+        Ok(stmts)
     }
 
     // --- expressions, lowest precedence first --------------------------------------
