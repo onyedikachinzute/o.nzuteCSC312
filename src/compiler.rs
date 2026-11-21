@@ -157,8 +157,120 @@ impl<'a> Compiler<'a> {
     /// Emits the code for `expr` and returns the line the caller should attribute its own
     /// follow-up instruction to.
     fn expression(&mut self, expr: &Expr) -> usize {
-        // TODO(you): emit code for one expression, and return the line it came from.
-        todo!("expression")
+        match expr {
+            Expr::Literal { value, line } => {
+                match value {
+                    Value::Nil => self.chunk.write(Op::Nil, *line),
+                    Value::Bool(true) => self.chunk.write(Op::True, *line),
+                    Value::Bool(false) => self.chunk.write(Op::False, *line),
+                    _ => {
+                        let idx = self.chunk.constant(value.clone());
+                        self.chunk.write(Op::Constant(idx), *line)
+                    }
+                };
+                *line
+            }
+            Expr::Grouping(inner) => self.expression(inner),
+
+            Expr::Variable { name, at } => {
+                match at {
+                    Resolved::Global => {
+                        let idx = self.name_constant(&name.lexeme);
+                        self.chunk.write(Op::GetGlobal(idx), name.line);
+                    }
+                    Resolved::Local { slot, .. } => {
+                        self.chunk.write(Op::GetLocal(*slot), name.line);
+                    }
+                }
+                name.line
+            }
+
+            Expr::Assign { name, value, at } => {
+                self.expression(value);
+                match at {
+                    Resolved::Global => {
+                        let idx = self.name_constant(&name.lexeme);
+                        self.chunk.write(Op::SetGlobal(idx), name.line);
+                    }
+                    Resolved::Local { slot, .. } => {
+                        self.chunk.write(Op::SetLocal(*slot), name.line);
+                    }
+                }
+                name.line
+            }
+
+            Expr::Logical { left, op, right } => {
+                self.expression(left);
+                match op.kind {
+                    TokenType::And => {
+                        let end_jump = self.chunk.write(Op::JumpIfFalse(0), op.line);
+                        self.chunk.write(Op::Pop, op.line);
+                        self.expression(right);
+                        self.patch(end_jump);
+                    }
+                    TokenType::Or => {
+                        let else_jump = self.chunk.write(Op::JumpIfFalse(0), op.line);
+                        let end_jump = self.chunk.write(Op::Jump(0), op.line);
+                        self.patch(else_jump);
+                        self.chunk.write(Op::Pop, op.line);
+                        self.expression(right);
+                        self.patch(end_jump);
+                    }
+                    // Added for extension (`??`):
+                    TokenType::QuestionQuestion => {
+                        let end_jump = self.chunk.write(Op::JumpIfNotNil(0), op.line);
+                        self.chunk.write(Op::Pop, op.line);
+                        self.expression(right);
+                        self.patch(end_jump);
+                    }
+                    _ => unreachable!(),
+                }
+                op.line
+            }
+
+            Expr::Unary { op, right } => {
+                self.expression(right);
+                match op.kind {
+                    TokenType::Bang => self.chunk.write(Op::Not, op.line),
+                    TokenType::Minus => self.chunk.write(Op::Negate, op.line),
+                    _ => unreachable!(),
+                };
+                op.line
+            }
+
+            Expr::Binary { left, op, right } => {
+                self.expression(left);
+                self.expression(right);
+                let instr = match op.kind {
+                    TokenType::Plus => Op::Add,
+                    TokenType::Minus => Op::Subtract,
+                    TokenType::Star => Op::Multiply,
+                    TokenType::Slash => Op::Divide,
+                    TokenType::EqualEqual => Op::Equal,
+                    TokenType::BangEqual => Op::NotEqual,
+                    TokenType::Greater => Op::Greater,
+                    TokenType::GreaterEqual => Op::GreaterEqual,
+                    TokenType::Less => Op::Less,
+                    TokenType::LessEqual => Op::LessEqual,
+                    _ => unreachable!(),
+                };
+                self.chunk.write(instr, op.line);
+                op.line
+            }
+
+            Expr::Call {
+                callee,
+                paren,
+                args,
+            } => {
+                self.expression(callee);
+                for arg in args {
+                    self.expression(arg);
+                }
+                self.chunk.write(Op::Call(args.len()), paren.line);
+                paren.line
+            }
+        }
     }
 
     // --- names ------------------------------------------------------------------------
@@ -171,9 +283,10 @@ impl<'a> Compiler<'a> {
     /// resolver's answer and `in_function` is the one case it cannot express on its own:
     /// the script's outermost declarations are globals and a function body's are not.
     fn declare(&mut self, name: &str, slot: Option<usize>, line: usize) {
-        // TODO(you): a global is written into the globals map; a local is already on the stack
-        //            in the slot resolver.rs gave it, so it emits nothing.
-        todo!("declare")
+        if slot.is_none() && !self.in_function {
+            let idx = self.name_constant(name);
+            self.chunk.write(Op::DefineGlobal(idx), line);
+        }
     }
 
     fn name_constant(&mut self, name: &str) -> usize {
