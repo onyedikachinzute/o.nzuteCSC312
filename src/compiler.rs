@@ -71,8 +71,85 @@ impl<'a> Compiler<'a> {
     // --- statements -------------------------------------------------------------------
 
     fn statement(&mut self, stmt: &Stmt) {
-        // TODO(you): emit code for one statement.
-        todo!("statement")
+        match stmt {
+            Stmt::Expression(expr) => {
+                let line = self.expression(expr);
+                self.chunk.write(Op::Pop, line);
+            }
+            Stmt::Print(expr) => {
+                let line = self.expression(expr);
+                self.chunk.write(Op::Print, line);
+            }
+            Stmt::Var {
+                name,
+                initialiser,
+                slot,
+            } => {
+                let line = match initialiser {
+                    Some(expr) => self.expression(expr),
+                    None => {
+                        self.chunk.write(Op::Nil, name.line);
+                        name.line
+                    }
+                };
+                self.declare(&name.lexeme, *slot, line);
+            }
+            Stmt::Block { body, locals } => {
+                self.statements(body);
+                self.end_scope(*locals);
+            }
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let line = self.expression(condition);
+                let then_jump = self.chunk.write(Op::JumpIfFalse(0), line);
+                self.chunk.write(Op::Pop, line);
+                self.statement(then_branch);
+
+                let else_jump = self.chunk.write(Op::Jump(0), line);
+                self.patch(then_jump);
+                self.chunk.write(Op::Pop, line);
+
+                if let Some(alt) = else_branch {
+                    self.statement(alt);
+                }
+                self.patch(else_jump);
+            }
+            Stmt::While { condition, body } => {
+                let loop_start = self.chunk.code.len();
+                let line = self.expression(condition);
+                let exit_jump = self.chunk.write(Op::JumpIfFalse(0), line);
+                self.chunk.write(Op::Pop, line);
+
+                self.statement(body);
+                self.chunk.write(Op::Jump(loop_start), line);
+
+                self.patch(exit_jump);
+                self.chunk.write(Op::Pop, line);
+            }
+            Stmt::Function { index, name, slot } => {
+                let line = self.program.functions[*index].line;
+                let idx = self.chunk.constant(Value::Function {
+                    index: *index,
+                    name: name.clone(),
+                });
+                self.chunk.write(Op::Constant(idx), line);
+                self.declare(name, *slot, line);
+            }
+            Stmt::Return(value) => {
+                let line = match value {
+                    Some(expr) => self.expression(expr),
+                    None => {
+                        let l = self.chunk.last_line();
+                        self.chunk.write(Op::Nil, l);
+                        l
+                    }
+                };
+                self.chunk.write(Op::Return, line);
+            }
+        }
     }
 
     // --- expressions ------------------------------------------------------------------
