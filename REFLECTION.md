@@ -1,89 +1,24 @@
-# CA2 Reflection — Parser
+# Reflection
 
-### Question 1: Dangling Else Resolution
-In `src/parser.rs:170-174`, the dangling `else` is resolved inside `if_statement`:
+## 1. Short-circuiting `and` and `or`
 
+In `src/interpreter.rs:140-156`, `Expr::Logical` evaluates the left operand first and checks `l.is_truthy()` before touching `right`. For `TokenType::Or`, if `l.is_truthy()` is true it returns `Ok(l)` immediately without evaluating `right`; otherwise it evaluates and returns `right`. For `TokenType::And`, if `!l.is_truthy()` is true it returns `Ok(l)` immediately; otherwise it evaluates and returns `right`. Because Kobo defines only `false` and `nil` as falsey (`Value::is_truthy` in `src/value.rs:24-26`), `nil or "fallback"` skips `nil` and evaluates to `"fallback"`, whereas `0 and 1` treats `0` as truthy and evaluates to `1`. Returning `true` or `false` instead would pass tests where logical expressions are only consumed by `if` or `while` conditions (which only branch on truthiness), but would fail tests that print, assign, or pass the resulting operand value directly (such as `print nil or "fallback";`).
+
+## 2. Static resolution and stack discipline
+
+In `src/resolver.rs:64-72`, `lookup` iterates backwards over `self.locals` from the innermost scope outward, returning `Resolved::Local { depth, slot }` for the first initialised matching name or falling back to `Resolved::Global`. Resolving locals to a fixed stack slot at compile time makes the VM faster than the tree-walking interpreter because `Op::GetLocal(slot)` and `Op::SetLocal(slot)` (`src/vm.rs:79-85`) index directly into `self.stack[base + slot]` in $O(1)$ time, avoiding heap-allocated `HashMap` lookups and string comparisons at runtime. In `src/compiler.rs:269-274`, `end_scope` emits one `Op::Pop` per local declared inside a closing block. If `end_scope` emits one `Pop` too few, a dead local remains stranded on the VM stack. `phase-3` (the tree walker, which drops an entire scope map at once) does not catch this bug, whereas `phase-4` (`--vm`) catches it when subsequent local slot indices or function return boundaries shift out of alignment.
+
+## 3. Extension: `??` (nil-coalescing)
+
+I added `TokenType::QuestionQuestion` in `src/token.rs:39` and `src/token.rs:84`, scanning for `??` in `src/scanner.rs:103-109`, `Parser::nil_coalesce` below `or` in `src/parser.rs:226-240`, evaluation in `src/interpreter.rs:157-163`, `Op::JumpIfNotNil` in `src/chunk.rs:56` and `src/disassembler.rs:40`, bytecode emission in `src/compiler.rs:201-206`, and VM execution in `src/vm.rs:144-148`.
+
+The bytecode path was harder than the tree walk because Kobo's existing conditional jump (`Op::JumpIfFalse` in `src/vm.rs:138-142`) branches on `!self.peek().is_truthy()`, which treats both `false` and `nil` as falsey. Reusing `JumpIfFalse` would have wrongly discarded `false` in `false ?? 1`. I therefore introduced a dedicated `Op::JumpIfNotNil` instruction that peeks at the top of the stack and jumps over the `Pop` and right-hand operand only when the left value is not `Value::Nil`.
+
+In commit `91714c1`, `src/parser.rs:212` still routed assignment directly into `or()`, so `??` had no precedence rule and failed to parse:
 ```rust
-let else_branch = if self.matches(&[TokenType::Else]) {
-    Some(Box::new(self.statement()?))
-} else {
-    None
-};
+let expr = self.or()?;
 ```
-
-The recursion resolves ambiguity because self.statement() at src/parser.rs:169 is invoked recursively to parse then_branch. When an inner if statement executes, its own nested if_statement function eagerly checks for, matches, and consumes the else token at src/parser.rs:170 before returning control back up to the outer if_statement. The grammar specification itself is ambiguous, but the control flow of recursive descent forces the innermost if currently on the call stack to bind the else.
-
-For if (false) if (true) print "a"; else print "b";, the parser prints:(if false (if true (print a) (print b)))
-
-If the else bound to the outer if instead, it would print:(if false (if true (print a)) (print b))
-
-Broken commit (aa0e160): let else_branch = None;
-
-Fixed commit (f5edddd): let else_branch = if self.matches(&[TokenType::Else]) { Some(Box::new(self.statement()?)) } else { None };
-
-### Question 2: Assignment Left-Hand Side Validation
-
-In `src/parser.rs:230-238`, the check validating the target of an assignment occurs inside assignment:
-
+In commit `42e150d`, I updated `src/parser.rs:212` to call `nil_coalesce()` just below `or`:
 ```rust
-if let Expr::Variable { name, at } = expr {
-    return Ok(Expr::Assign {
-        name,
-        value: Box::new(value),
-        at,
-    });
-}
-
-self.error_at(&equals, "Cannot assign to this expression.");
+let expr = self.nil_coalesce()?;
 ```
-
-This check cannot happen before parsing the left side because Kobo's grammar is not LL(1). Lookahead alone cannot distinguish an identifier assignment target from the beginning of a complex expression (such as a + b versus a = 1). Consequently, the left operand must first be fully parsed as a generic expression via self.or() at src/parser.rs:224, and only verified after encountering the = token at src/parser.rs:226.
-
-For the invalid input 1 = 2;, the parser reports:[line 1] Error at '=': Cannot assign to this expression.
-
-Broken commit (c4b2efb): self.or()
-
-Fixed commit (f5edddd): if let Expr::Variable { name, at } = expr { return Ok(Expr::Assign { name, value: Box::new(value), at }); } self.error_at(&equals, "Cannot assign to this expression.");
-
-### Question 3: Error Recovery via Synchronisation
-
-In `src/parser.rs:445-469`, `synchronise` handles parse error recovery:
-
-```rust
-fn synchronise(&mut self) {
-    self.depth = 0;
-    if !self.at_end() {
-        self.current += 1;
-    }
-    while !self.at_end() {
-        if self.previous().kind == TokenType::Semicolon {
-            return;
-        }
-        match self.peek().kind {
-            TokenType::Fun
-            | TokenType::Var
-            | TokenType::If
-            | TokenType::While
-            | TokenType::Print
-            | TokenType::Return => return,
-            _ => {}
-        }
-        self.current += 1;
-    }
-}
-```
-
-synchronise discards tokens until it steps just past a SEMICOLON at src/parser.rs:453 or positions itself on a declaration/statement keyword (fun, var, if, while, print, return) at src/parser.rs:458-463. These tokens mark clean boundaries where statement parsing can safely resume without cascading failures.
-
-In tests/phase-2/invalid/expect_semicolon_after_value.kobo:
-
-print 1
-print 2;
-
-Standard error output with synchronise:[line 2] Error at 'print': Expect ';' after value.
-
-If the call to synchronise() at src/parser.rs:18 is removed, the parser fails to discard tokens and make progress. Its output changes to:[line 2] Error at 'print': Expect ';' after value.[line 2] Error at ';': Expect expression.
-
-Broken commit (d0f07b9): self.depth = 0; while !self.at_end() { self.current += 1; if self.previous().kind == TokenType::Semicolon { return; } }
-
-Fixed commit (f5edddd): match self.peek().kind { TokenType::Fun | TokenType::Var | TokenType::If | TokenType::While | TokenType::Print | TokenType::Return => return, _ => {} }
