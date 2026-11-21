@@ -108,9 +108,120 @@ fn execute(stmt: &Stmt, env: &mut Environment, program: &Program) -> Exec<()> {
 }
 
 fn evaluate(expr: &Expr, env: &mut Environment, program: &Program) -> Exec<Value> {
-    // TODO(you): spec 2 and 4.1: evaluate one expression to a Value. Truthiness, equality
-    //            across kinds and short-circuiting are all specified.
-    todo!("evaluate")
+    match expr {
+        Expr::Literal { value, .. } => Ok(value.clone()),
+        Expr::Grouping(inner) => evaluate(inner, env, program),
+
+        Expr::Variable { name, at } => match at {
+            Resolved::Global => env
+                .get_global(&name.lexeme)
+                .cloned()
+                .ok_or_else(|| undefined(name)),
+            Resolved::Local { depth, .. } => env
+                .get_at(*depth, &name.lexeme)
+                .cloned()
+                .ok_or_else(|| undefined(name)),
+        },
+
+        Expr::Assign { name, value, at } => {
+            let val = evaluate(value, env, program)?;
+            let assigned = match at {
+                Resolved::Global => env.assign_global(&name.lexeme, val.clone()),
+                Resolved::Local { depth, .. } => env.assign_at(*depth, &name.lexeme, val.clone()),
+            };
+            if assigned {
+                Ok(val)
+            } else {
+                Err(undefined(name))
+            }
+        }
+
+        Expr::Logical { left, op, right } => {
+            let l = evaluate(left, env, program)?;
+            match op.kind {
+                TokenType::Or => {
+                    if l.is_truthy() {
+                        Ok(l)
+                    } else {
+                        evaluate(right, env, program)
+                    }
+                }
+                TokenType::And => {
+                    if !l.is_truthy() {
+                        Ok(l)
+                    } else {
+                        evaluate(right, env, program)
+                    }
+                }
+                // Added for extension (`??`):
+                TokenType::QuestionQuestion => {
+                    if !matches!(l, Value::Nil) {
+                        Ok(l)
+                    } else {
+                        evaluate(right, env, program)
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        Expr::Unary { op, right } => {
+            let r = evaluate(right, env, program)?;
+            match op.kind {
+                TokenType::Bang => Ok(Value::Bool(!r.is_truthy())),
+                TokenType::Minus => match r {
+                    Value::Number(n) => Ok(Value::Number(-n)),
+                    _ => Err(err(op.line, "Operand must be a number.")),
+                },
+                _ => unreachable!(),
+            }
+        }
+
+        Expr::Binary { left, op, right } => {
+            let l = evaluate(left, env, program)?;
+            let r = evaluate(right, env, program)?;
+            match op.kind {
+                TokenType::Plus => match (l, r) {
+                    (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
+                    (Value::Str(a), Value::Str(b)) => Ok(Value::Str(a + &b)),
+                    _ => Err(err(op.line, "Operands must be two numbers or two strings.")),
+                },
+                TokenType::Minus => arith(l, r, op.line, |a, b| a - b),
+                TokenType::Star => arith(l, r, op.line, |a, b| a * b),
+                TokenType::Slash => {
+                    let (a, b) = numbers(l, r, op.line)?;
+                    if b == 0.0 {
+                        Err(err(op.line, "Division by zero."))
+                    } else {
+                        Ok(Value::Number(a / b))
+                    }
+                }
+                TokenType::Greater => compare(l, r, op.line, |a, b| a > b),
+                TokenType::GreaterEqual => compare(l, r, op.line, |a, b| a >= b),
+                TokenType::Less => compare(l, r, op.line, |a, b| a < b),
+                TokenType::LessEqual => compare(l, r, op.line, |a, b| a <= b),
+                TokenType::EqualEqual => Ok(Value::Bool(l == r)),
+                TokenType::BangEqual => Ok(Value::Bool(l != r)),
+                _ => unreachable!(),
+            }
+        }
+
+        Expr::Call {
+            callee,
+            paren,
+            args,
+        } => {
+            let callee_val = evaluate(callee, env, program)?;
+            let mut arg_vals = Vec::with_capacity(args.len());
+            for arg in args {
+                arg_vals.push(evaluate(arg, env, program)?);
+            }
+            match callee_val {
+                Value::Function { index, .. } => call(index, arg_vals, paren.line, env, program),
+                _ => Err(err(paren.line, "This value is not a function.")),
+            }
+        }
+    }
 }
 
 /// Run a function body in a fresh frame. Everything about Kobo's scope rules is in these
