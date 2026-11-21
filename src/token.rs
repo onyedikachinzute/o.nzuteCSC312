@@ -40,6 +40,7 @@ pub enum TokenType {
     True,
     Var,
     While,
+    QuestionQuestion,
 
     Eof,
 }
@@ -87,6 +88,7 @@ impl TokenType {
             TokenType::True => "TRUE",
             TokenType::Var => "VAR",
             TokenType::While => "WHILE",
+            TokenType::QuestionQuestion => "QUESTION_QUESTION",
 
             TokenType::Eof => "EOF",
         }

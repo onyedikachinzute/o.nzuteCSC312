@@ -221,25 +221,41 @@ impl Parser {
     /// way. So the left side is parsed as an ordinary expression and *then* checked, which
     /// is the standard answer to a rule that is not LL(1).
     fn assignment(&mut self) -> Parsed<Expr> {
-        let expr = self.or()?;
+      let expr = self.nil_coalesce()?;
 
-        if self.matches(&[TokenType::Equal]) {
-            let equals = self.previous();
-            let value = self.assignment()?;
+      if self.matches(&[TokenType::Equal]) {
+          let equals = self.previous();
+          let value = self.assignment()?;
 
-            if let Expr::Variable { name, at } = expr {
-                return Ok(Expr::Assign {
-                    name,
-                    value: Box::new(value),
-                    at,
-                });
-            }
+          if let Expr::Variable { name, at } = expr {
+              return Ok(Expr::Assign {
+                  name,
+                  value: Box::new(value),
+                  at,
+              });
+          }
 
-            self.error_at(&equals, "Cannot assign to this expression.");
-        }
+          self.error_at(&equals, "Cannot assign to this expression.");
+      }
 
-        Ok(expr)
-    }
+      Ok(expr)
+  }
+
+  fn nil_coalesce(&mut self) -> Parsed<Expr> {
+      let mut expr = self.or()?;
+
+      while self.matches(&[TokenType::QuestionQuestion]) {
+          let op = self.previous();
+          let right = self.or()?;
+          expr = Expr::Logical {
+              left: Box::new(expr),
+              op,
+              right: Box::new(right),
+          };
+      }
+
+      Ok(expr)
+  }
 
     fn or(&mut self) -> Parsed<Expr> {
         let mut expr = self.and()?;

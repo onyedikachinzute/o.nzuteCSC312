@@ -42,6 +42,7 @@ fn instruction(c: &Chunk, op: Op) -> String {
         Op::SetLocal(i) => format!("{:<14} {:>4}", "SET_LOCAL", i),
         Op::Jump(t) => format!("{:<14} {:>4}", "JUMP", t),
         Op::JumpIfFalse(t) => format!("{:<14} {:>4}", "JUMP_IF_FALSE", t),
+        Op::JumpIfNotNil(t) => format!("{:<14} {:>4}", "JUMP_IF_NOT_NIL", t),
         Op::Call(n) => format!("{:<14} {:>4}", "CALL", n),
         Op::Nil => "NIL".to_string(),
         Op::True => "TRUE".to_string(),

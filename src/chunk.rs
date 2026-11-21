@@ -52,6 +52,7 @@ pub enum Op {
     /// evaluate to one of their operands (spec section 4.1), so the value has to survive the
     /// test; `if` and `while` emit an explicit `Pop` afterwards instead.
     JumpIfFalse(usize),
+    JumpIfNotNil(usize),
     /// The operand is the argument count. The callee sits under the arguments.
     Call(usize),
     Return,

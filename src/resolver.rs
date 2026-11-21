@@ -15,6 +15,16 @@ pub fn resolve(program: &mut Program) {
     r.statements(&mut program.stmts);
 }
 
+fn resolve_function(func: &mut Function) {
+    let mut r = Resolver::default();
+    r.depth = 1;
+    for param in &func.params {
+        r.declare(param);
+        r.define(param);
+    }
+    r.statements(&mut func.body);
+}
+
 struct Local {
     name: String,
     scope: usize,

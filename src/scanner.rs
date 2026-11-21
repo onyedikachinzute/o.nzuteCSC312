@@ -126,6 +126,14 @@ impl Scanner {
                 self.add(kind);
             }
 
+            '?' => {
+              if self.matches('?') {
+                  self.add(TokenType::QuestionQuestion);
+              } else {
+                  self.error(self.line, "Character is not part of any token.");
+              }
+            }
+
             '"' => self.string(),
             '0'..='9' => self.number(),
             'a'..='z' | 'A'..='Z' | '_' => self.identifier(),
