@@ -73,9 +73,15 @@ impl Resolver {
 
     /// Innermost first, so the nearest declaration wins and an outer one stays shadowed.
     fn lookup(&self, name: &str) -> Resolved {
-        // TODO(you): innermost binding first, skipping any still initialising. A name that
-        //            matches no local is a global (spec 7).
-        todo!("lookup")
+        for (slot, local) in self.locals.iter().enumerate().rev() {
+            if local.initialised && local.name == name {
+                return Resolved::Local {
+                    depth: self.depth - local.scope,
+                    slot,
+                };
+            }
+        }
+        Resolved::Global
     }
 
     fn statements(&mut self, stmts: &mut [Stmt]) {
