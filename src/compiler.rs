@@ -305,7 +305,10 @@ impl<'a> Compiler<'a> {
     }
 
     fn patch(&mut self, at: usize) {
-        // TODO(you): fill in a forward jump, whose target was not known when it was emitted.
-        todo!("patch")
+        let target = self.chunk.code.len();
+        match &mut self.chunk.code[at] {
+            Op::Jump(t) | Op::JumpIfFalse(t) | Op::JumpIfNotNil(t) => *t = target,
+            _ => panic!("attempted to patch a non-jump instruction"),
+        }
     }
 }
