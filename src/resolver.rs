@@ -99,7 +99,6 @@ impl Resolver {
                 initialiser,
                 slot,
             } => {
-                // Declare, resolve, define, in that order, which is the whole of section 4.2.
                 self.declare(&name.lexeme);
                 if let Some(e) = initialiser {
                     self.expression(e);
@@ -130,7 +129,6 @@ impl Resolver {
                 self.statement(body);
             }
 
-            // The body was resolved in its own frame above; only the name binds here.
             Stmt::Function { name, slot, .. } => {
                 self.declare(name);
                 *slot = self.define(name);
